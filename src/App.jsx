@@ -1,70 +1,127 @@
-function App() {
+import { useEffect, useState } from 'react'
+
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+
+function Toolbar({ onAddNode, onSave, onNew, title, setTitle }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Subtle pattern overlay */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.05),transparent_50%)]"></div>
+    <div className="flex items-center gap-3 p-3 bg-slate-800/80 border-b border-slate-700 sticky top-0 z-10">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="bg-slate-700 text-white px-3 py-2 rounded outline-none w-64"
+        placeholder="Titre de la mindmap"
+      />
+      <button onClick={onAddNode} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded">
+        Ajouter un noeud
+      </button>
+      <button onClick={onSave} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded">
+        Sauvegarder
+      </button>
+      <button onClick={onNew} className="px-3 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded ml-auto">
+        Nouveau
+      </button>
+    </div>
+  )
+}
 
-      <div className="relative min-h-screen flex items-center justify-center p-8">
-        <div className="max-w-2xl w-full">
-          {/* Header with Flames icon */}
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center mb-6">
-              <img
-                src="/flame-icon.svg"
-                alt="Flames"
-                className="w-24 h-24 drop-shadow-[0_0_25px_rgba(59,130,246,0.5)]"
-              />
-            </div>
+function Node({ node, selected, onMouseDown, onChangeLabel }) {
+  return (
+    <div
+      onMouseDown={(e) => onMouseDown(e, node.id)}
+      className={`absolute select-none cursor-move ${selected ? 'ring-2 ring-blue-400' : ''}`}
+      style={{ left: node.x, top: node.y }}
+    >
+      <input
+        value={node.label}
+        onChange={(e) => onChangeLabel(node.id, e.target.value)}
+        className="bg-white/90 text-slate-900 px-3 py-2 rounded shadow min-w-[140px]"
+      />
+    </div>
+  )
+}
 
-            <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
-              Flames Blue
-            </h1>
+function App() {
+  const [mindmaps, setMindmaps] = useState([])
+  const [currentId, setCurrentId] = useState(null)
+  const [title, setTitle] = useState('Nouvelle mindmap')
+  const [nodes, setNodes] = useState([])
+  const [draggingId, setDraggingId] = useState(null)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
 
-            <p className="text-xl text-blue-200 mb-6">
-              Build applications through conversation
-            </p>
+  // Load list
+  useEffect(() => {
+    fetch(`${API_BASE}/api/mindmaps`).then(r => r.json()).then(setMindmaps).catch(() => {})
+  }, [])
+
+  // Basic canvas dragging for nodes
+  const onMouseMove = (e) => {
+    if (!draggingId) return
+    setNodes(prev => prev.map(n => n.id === draggingId ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n))
+  }
+
+  const onMouseUp = () => setDraggingId(null)
+
+  const handleMouseDown = (e, id) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDraggingId(id)
+    setOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }
+
+  const addNode = () => {
+    const id = Math.random().toString(36).slice(2, 9)
+    setNodes([...nodes, { id, label: 'Idée', x: 200, y: 150 }])
+  }
+
+  const changeLabel = (id, value) => {
+    setNodes(prev => prev.map(n => n.id === id ? { ...n, label: value } : n))
+  }
+
+  const createNew = async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/mindmaps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+      const data = await r.json()
+      setCurrentId(data.id)
+      setTitle(data.title)
+      setNodes([])
+      setMindmaps([data, ...mindmaps])
+    } catch {}
+  }
+
+  const save = async () => {
+    if (!currentId) return await createNew()
+    await fetch(`${API_BASE}/api/mindmaps/${currentId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, nodes }) })
+  }
+
+  const loadMindmap = async (id) => {
+    const r = await fetch(`${API_BASE}/api/mindmaps/${id}`)
+    const data = await r.json()
+    setCurrentId(data.id)
+    setTitle(data.title)
+    setNodes(data.nodes || [])
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
+      <Toolbar onAddNode={addNode} onSave={save} onNew={createNew} title={title} setTitle={setTitle} />
+
+      <div className="grid grid-cols-12">
+        <aside className="col-span-3 border-r border-slate-800 p-3 space-y-2 bg-slate-900/80">
+          <h3 className="text-sm uppercase tracking-wide text-slate-400">Vos mindmaps</h3>
+          <button onClick={createNew} className="w-full text-left px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded mt-2">+ Nouvelle</button>
+          <div className="space-y-1 mt-2 max-h-[70vh] overflow-auto pr-1">
+            {mindmaps.map(m => (
+              <div key={m.id} className={`px-3 py-2 rounded cursor-pointer hover:bg-slate-800 ${currentId === m.id ? 'bg-slate-800' : ''}`} onClick={() => loadMindmap(m.id)}>
+                <div className="text-sm font-medium">{m.title}</div>
+              </div>
+            ))}
           </div>
+        </aside>
 
-          {/* Instructions */}
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-blue-500/20 rounded-2xl p-8 shadow-xl mb-6">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                1
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Describe your idea</h3>
-                <p className="text-blue-200/80 text-sm">Use the chat panel on the left to tell the AI what you want to build</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4 mb-6">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                2
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Watch it build</h3>
-                <p className="text-blue-200/80 text-sm">Your app will appear in this preview as the AI generates the code</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                3
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Refine and iterate</h3>
-                <p className="text-blue-200/80 text-sm">Continue the conversation to add features and make changes</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center">
-            <p className="text-sm text-blue-300/60">
-              No coding required • Just describe what you want
-            </p>
-          </div>
-        </div>
+        <main className="relative col-span-9 h-[calc(100vh-56px)] overflow-hidden bg-[radial-gradient(circle_at_30%_20%,rgba(59,130,246,0.15),transparent_40%),radial-gradient(circle_at_70%_80%,rgba(16,185,129,0.15),transparent_40%)]">
+          {nodes.map(n => (
+            <Node key={n.id} node={n} selected={draggingId === n.id} onMouseDown={handleMouseDown} onChangeLabel={changeLabel} />
+          ))}
+        </main>
       </div>
     </div>
   )
